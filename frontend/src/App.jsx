@@ -1,292 +1,375 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from 'react'
 
-// Keys match backend/classifier.py: "clear_water", "sediment", "algae".
-// "pollution" is included for when the classifier learns to detect trash.
 const CLASSES = {
-  clear_water: {
-    label: "Clear Water", icon: "✅", color: "#22c55e",
-    tip: "Water appears relatively clean. A photo can't reveal chemical or bacterial contamination, so test before drinking.",
+  clear: {
+    label: 'Clear water',
+    emoji: '💧',
+    tone: 'clear',
+    tip: 'No visible contamination. It looks clear, but a photo can’t show chemicals or bacteria.',
   },
   sediment: {
-    label: "Sediment-Heavy Water", icon: "🟤", color: "#d97706",
-    tip: "Brown or red tones suggest suspended soil or silt. Filtration is recommended.",
+    label: 'Sediment-heavy',
+    emoji: '🟤',
+    tone: 'sediment',
+    tip: 'Silt or soil is clouding the water. Let it settle or filter it before any use.',
   },
   algae: {
-    label: "Algae Contamination", icon: "🟢", color: "#65a30d",
-    tip: "Green tint detected. Possible algal bloom. Avoid contact and do not consume.",
+    label: 'Algae-contaminated',
+    emoji: '🟢',
+    tone: 'algae',
+    tip: 'Possible algal bloom. Avoid contact and keep pets away until it has been tested.',
   },
   pollution: {
-    label: "Pollution / Trash Detected", icon: "🗑️", color: "#dc2626",
-    tip: "Debris or pollution visible. Consider reporting it to local authorities.",
+    label: 'Pollution / trash',
+    emoji: '🗑️',
+    tone: 'pollution',
+    tip: 'Floating debris or oil sheen detected. Consider reporting it to local authorities.',
   },
-};
+}
 
-const fallback = (key) => ({
-  label: key ?? "Unknown", icon: "❓", color: "#64748b",
-  tip: "No recommendation available.",
-});
+const FALLBACK = {
+  label: 'Unknown',
+  emoji: '❔',
+  tone: 'clear',
+  tip: 'We couldn’t match this photo to a category.',
+}
 
-const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
+const HISTORY_KEY = 'aquavision-history'
 
-const scoreColor = (s) => (s >= 75 ? "#22c55e" : s >= 50 ? "#eab308" : "#ef4444");
+/* ---------- small helpers ---------- */
 
-const HISTORY_KEY = "aquavision-history";
-const MAX_HISTORY = 12;
-const BLANK = "data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=";
+function useCountUp(target, duration = 1200) {
+  const [value, setValue] = useState(0)
+  useEffect(() => {
+    let raf
+    const start = performance.now()
+    const tick = (now) => {
+      const t = Math.min((now - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setValue(Math.round(target * eased))
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return value
+}
 
 function loadHistory() {
   try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY)) ?? [];
+    return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []
   } catch {
-    return [];
+    return []
   }
 }
 
 function saveHistory(list) {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list))
   } catch {
-    /* storage full or blocked: history just won't persist */
+    /* storage can be blocked, ignore */
   }
 }
 
-// Shrink the photo to a small square thumbnail so history stays tiny.
-function makeThumb(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const size = 96;
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const k = Math.max(size / img.width, size / img.height);
-      const w = img.width * k, h = img.height * k;
-      canvas.getContext("2d").drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.7));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-    img.src = url;
-  });
+/* ---------- components ---------- */
+
+function Waves() {
+  const d =
+    'M0,100 C360,160 360,40 720,100 C1080,160 1080,40 1440,100 C1800,160 1800,40 2160,100 C2520,160 2520,40 2880,100 L2880,200 L0,200 Z'
+  return (
+    <div className="waves" aria-hidden="true">
+      <svg className="wave wave-back" viewBox="0 0 2880 200" preserveAspectRatio="none">
+        <path d={d} />
+      </svg>
+      <svg className="wave wave-front" viewBox="0 0 2880 200" preserveAspectRatio="none">
+        <path d={d} />
+      </svg>
+    </div>
+  )
 }
 
 function Gauge({ score }) {
-  const r = 70, c = 2 * Math.PI * r;
-  const color = scoreColor(score);
+  const shown = useCountUp(score)
+  const R = 62
+  const C = 2 * Math.PI * R
   return (
     <div className="gauge">
-      <svg viewBox="0 0 180 180">
-        <circle cx="90" cy="90" r={r} className="gauge-bg" />
+      <svg viewBox="0 0 160 160">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#7dd3fc" />
+            <stop offset="100%" stopColor="#2563eb" />
+          </linearGradient>
+        </defs>
+        <circle className="gauge-track" cx="80" cy="80" r={R} />
         <circle
-          cx="90" cy="90" r={r} className="gauge-fg" stroke={color}
-          strokeDasharray={c}
-          strokeDashoffset={c - (Math.min(score, 100) / 100) * c}
-          transform="rotate(-90 90 90)"
+          className="gauge-fill"
+          cx="80"
+          cy="80"
+          r={R}
+          strokeDasharray={C}
+          strokeDashoffset={C * (1 - shown / 100)}
         />
       </svg>
       <div className="gauge-text">
-        <span className="gauge-num" style={{ color }}>{Math.round(score)}</span>
-        <span className="gauge-sub">/ 100</span>
+        <span className="gauge-num">{shown}</span>
+        <span className="gauge-of">out of 100</span>
       </div>
     </div>
-  );
+  )
 }
 
-function Stat({ label, value }) {
+function Bar({ label, percent, display }) {
+  const p = Math.max(0, Math.min(100, percent))
   return (
-    <div className="stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="bar-row">
+      <div className="bar-label">
+        <span>{label}</span>
+        <span>{display ?? `${Math.round(p)}%`}</span>
+      </div>
+      <div className="bar-track">
+        <div className="bar-fill" style={{ width: `${p}%` }} />
+      </div>
     </div>
-  );
+  )
 }
+
+/* ---------- main app ---------- */
 
 export default function App() {
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [drag, setDrag] = useState(false);
-  const inputRef = useRef();
-  const [history, setHistory] = useState(loadHistory);
-  const [viewingSaved, setViewingSaved] = useState(false);
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [result, setResult] = useState(null)
+  const [scanId, setScanId] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [dragging, setDragging] = useState(false)
+  const [history, setHistory] = useState(loadHistory)
+  const inputRef = useRef(null)
 
-  const pick = (f) => {
-    if (!f) return;
-    setError(null);
-    setResult(null);
-    setFile(f);
-    // AVIF can't always be previewed by the browser; fall back gracefully.
-    setPreview(URL.createObjectURL(f));
-  };
+  // free the preview URL when it changes
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview)
+    }
+  }, [preview])
 
-  const analyze = async () => {
-    setLoading(true);
-    setError(null);
+  function chooseFile(f) {
+    if (!f) return
+    setFile(f)
+    setPreview(URL.createObjectURL(f))
+    setResult(null)
+    setError('')
+  }
+
+  function onDrop(e) {
+    e.preventDefault()
+    setDragging(false)
+    chooseFile(e.dataTransfer.files?.[0])
+  }
+
+  async function analyze() {
+    if (!file) return
+    setLoading(true)
+    setError('')
     try {
-      const body = new FormData();
-      body.append("image", file);
-      const res = await fetch("/upload", { method: "POST", body });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
-      setResult(data);
+      const form = new FormData()
+      form.append('image', file)
+      const res = await fetch('/upload', { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'The server could not analyze this photo.')
+      }
+      setResult(data)
+      setScanId((n) => n + 1)
 
       const entry = {
         id: Date.now(),
-        time: new Date().toISOString(),
-        name: file.name,
-        thumb: await makeThumb(file),
-        result: data,
-      };
-      const next = [entry, ...history].slice(0, MAX_HISTORY);
-      setHistory(next);
-      saveHistory(next);
-    } catch (e) {
-      setError(e.message === "Failed to fetch"
-        ? "Can't reach the backend. Is Flask running on port 5000?"
-        : e.message);
+        filename: data.filename || file.name,
+        classification: data.classification,
+        score: data.score,
+        time: new Date().toLocaleString([], {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      }
+      const next = [entry, ...history].slice(0, 12)
+      setHistory(next)
+      saveHistory(next)
+    } catch (err) {
+      setError(
+        err instanceof TypeError
+          ? 'Can’t reach the server. Is the Flask backend running?'
+          : err.message,
+      )
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  const reset = () => {
-    setFile(null); setPreview(null); setResult(null); setError(null);
-    setViewingSaved(false);
-  };
+  function clearHistory() {
+    setHistory([])
+    saveHistory([])
+  }
 
-  const openEntry = (entry) => {
-    setFile(null);
-    setError(null);
-    setResult(entry.result);
-    setPreview(entry.thumb || BLANK);
-    setViewingSaved(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const clearHistory = () => {
-    setHistory([]);
-    saveHistory([]);
-  };
-
-  const cls = result ? CLASSES[result.classification] ?? fallback(result.classification) : null;
+  const info = result ? CLASSES[result.classification] || FALLBACK : null
 
   return (
-    <main className="app">
-      <header>
-        <h1>💧 AquaVision</h1>
-        <p>AI-powered water quality analysis from a single photo</p>
+    <div className="page">
+      <Waves />
+
+      <header className="header">
+        <div className="logo">💧</div>
+        <h1>AquaVision</h1>
+        <p>Upload a photo of water and get an instant visual quality report.</p>
       </header>
 
-      {!preview && (
-        <div
-          className={`drop ${drag ? "drag" : ""}`}
-          onClick={() => inputRef.current.click()}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}
-        >
-          <div className="drop-icon">📷</div>
-          <strong>Drop a water photo here</strong>
-          <span>or click to browse (JPG, PNG, WEBP, AVIF)</span>
-          <input
-            ref={inputRef} type="file" hidden
-            accept=".png,.jpg,.jpeg,.webp,.avif,image/*"
-            onChange={(e) => pick(e.target.files[0])}
-          />
-        </div>
-      )}
-
-      {preview && (
+      <main className="grid">
+        {/* ---------- upload card ---------- */}
         <section className="card">
-          <img src={preview} alt="Water sample" className={viewingSaved ? "preview saved" : "preview"} />
-          {!result && (
-            <div className="actions">
-              <button className="primary" onClick={analyze} disabled={loading}>
-                {loading ? "Analyzing…" : "Analyze Water"}
-              </button>
-              <button className="ghost" onClick={reset} disabled={loading}>
-                Change photo
-              </button>
+          <h2>Your photo</h2>
+
+          <label
+            className={`drop ${dragging ? 'drop-active' : ''} ${preview ? 'drop-has' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDragging(true)
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => chooseFile(e.target.files?.[0])}
+            />
+            {preview ? (
+              <img src={preview} alt="Selected water" />
+            ) : (
+              <div className="drop-empty">
+                <div className="drop-icon">🌊</div>
+                <strong>Drag &amp; drop a photo</strong>
+                <span>or click to browse (JPG, PNG, WEBP, AVIF)</span>
+              </div>
+            )}
+          </label>
+
+          {file && <p className="filename">{file.name}</p>}
+
+          <button className="btn" onClick={analyze} disabled={!file || loading}>
+            {loading ? (
+              <>
+                <span className="spinner" /> Analyzing…
+              </>
+            ) : (
+              'Analyze Water'
+            )}
+          </button>
+
+          {error && <div className="error">⚠️ {error}</div>}
+        </section>
+
+        {/* ---------- results card ---------- */}
+        <section className="card">
+          <h2>Quality report</h2>
+
+          {!result ? (
+            <div className="placeholder">
+              <div className="placeholder-icon">🔬</div>
+              <p>Your results will appear here after you analyze a photo.</p>
+            </div>
+          ) : (
+            <div className="result fade-in">
+              <Gauge key={scanId} score={result.score} />
+
+              <div className={`badge badge-${info.tone}`}>
+                <span>{info.emoji}</span> {info.label}
+              </div>
+
+              <div className="confidence">
+                <Bar label="Confidence" percent={result.confidence} />
+              </div>
+
+              <p className="tip">{result.recommendation || info.tip}</p>
             </div>
           )}
         </section>
-      )}
 
-      {error && <div className="error">{error}</div>}
-
-      {result && (
-        <section className="card report">
-          <h2>Water Quality Report</h2>
-          <Gauge score={result.score} />
-          <div className="badge" style={{ background: cls.color + "22", color: cls.color }}>
-            {cls.icon} {cls.label}
-          </div>
-
-          <div className="conf">
-            <div className="conf-label">
-              <span>Confidence</span><span>{Math.round(result.confidence)}%</span>
+        {/* ---------- features card ---------- */}
+        {result && (
+          <section className="card wide fade-in">
+            <h2>What the computer vision measured</h2>
+            <div className="features">
+              <Bar label="Blue / teal coverage" percent={(result.blue_frac ?? 0) * 100} />
+              <Bar label="Green coverage" percent={(result.green_frac ?? 0) * 100} />
+              <Bar label="Brown coverage" percent={(result.brown_frac ?? 0) * 100} />
+              <Bar
+                label="Brightness"
+                percent={((result.brightness ?? 0) / 255) * 100}
+                display={`${Math.round(result.brightness ?? 0)} / 255`}
+              />
+              <Bar
+                label="Colour variety (oil sheen)"
+                percent={((result.hue_entropy ?? 0) / 4) * 100}
+                display={(result.hue_entropy ?? 0).toFixed(2)}
+              />
+              <Bar
+                label="Floating specks (debris)"
+                percent={((result.specks ?? 0) / 10) * 100}
+                display={(result.specks ?? 0).toFixed(1)}
+              />
             </div>
-            <div className="conf-bar">
-              <div style={{ width: `${result.confidence}%`, background: cls.color }} />
-            </div>
-          </div>
+            {result.width && (
+              <p className="meta">
+                Analyzed image: {result.width} × {result.height}px
+              </p>
+            )}
+          </section>
+        )}
 
-          <div className="rec">
-            <strong>Recommendation</strong>
-            <p>{cls.tip}</p>
-          </div>
-
-          <details className="features">
-            <summary>Computer vision features</summary>
-            <div className="stat-grid">
-              <Stat label="Green coverage" value={pct(result.green_frac)} />
-              <Stat label="Blue coverage" value={pct(result.blue_frac)} />
-              <Stat label="Brown coverage" value={pct(result.brown_frac)} />
-              <Stat label="Color variety" value={result.hue_entropy} />
-              <Stat label="Debris specks" value={result.specks} />
-              <Stat label="Brightness" value={result.brightness} />
-              <Stat label="Resolution" value={`${result.width}×${result.height}`} />
-              <Stat label="Avg R" value={result.red} />
-              <Stat label="Avg G" value={result.green} />
-              <Stat label="Avg B" value={result.blue} />
-            </div>
-          </details>
-
-          <button className="primary" onClick={reset}>Analyze another photo</button>
-        </section>
-      )}
-
-      {history.length > 0 && (
-        <section className="history">
-          <div className="history-head">
-            <h3>Recent scans</h3>
-            <button className="ghost small" onClick={clearHistory}>Clear</button>
-          </div>
-          {history.map((e) => {
-            const c = CLASSES[e.result.classification] ?? fallback(e.result.classification);
-            return (
-              <button className="hist-item" key={e.id} onClick={() => openEntry(e)}>
-                {e.thumb
-                  ? <img src={e.thumb} alt="" />
-                  : <span className="hist-ph">💧</span>}
-                <div className="hist-info">
-                  <strong style={{ color: c.color }}>{c.icon} {c.label}</strong>
-                  <span>
-                    {e.name} ·{" "}
-                    {new Date(e.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-                <span className="hist-score" style={{ color: scoreColor(e.result.score) }}>
-                  {e.result.score}
-                </span>
+        {/* ---------- history card ---------- */}
+        <section className="card wide">
+          <div className="card-head">
+            <h2>Scan history</h2>
+            {history.length > 0 && (
+              <button className="link" onClick={clearHistory}>
+                Clear
               </button>
-            );
-          })}
+            )}
+          </div>
+
+          {history.length === 0 ? (
+            <p className="muted">No scans yet. Your last 12 scans are saved in this browser.</p>
+          ) : (
+            <ul className="history">
+              {history.map((h) => {
+                const c = CLASSES[h.classification] || FALLBACK
+                return (
+                  <li key={h.id}>
+                    <span className="h-emoji">{c.emoji}</span>
+                    <div className="h-main">
+                      <strong>{c.label}</strong>
+                      <span>
+                        {h.filename} · {h.time}
+                      </span>
+                    </div>
+                    <span className="h-score">{h.score}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </section>
-      )}
-    </main>
-  );
+      </main>
+
+      <footer className="footer">
+        A photo only shows what’s visible. AquaVision can’t detect chemical or bacterial
+        contamination, so never use it to decide whether water is safe to drink.
+      </footer>
+    </div>
+  )
 }
