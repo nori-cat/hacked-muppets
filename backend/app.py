@@ -1,5 +1,7 @@
 from flask import Flask, request
 import os
+import cv2
+import numpy as np
 
 app = Flask(__name__)
 
@@ -24,6 +26,12 @@ def upload():
         return {"error": "No image uploaded"}, 400
 
     image = request.files["image"]
+    if not image.filename.lower().endswith(
+    (".png", ".jpg", ".jpeg", ".webp", ".avif")
+    ):
+        return {
+        "error": "Please upload an image file"
+        }, 400
 
     filepath = os.path.join(
         UPLOAD_FOLDER,
@@ -31,10 +39,18 @@ def upload():
     )
 
     image.save(filepath)
+    
+    img = cv2.imread(filepath)
+
+    average_color = img.mean()
+
+    score = int(min(100, average_color / 255 * 100))
 
     return {
-        "message": "Image uploaded",
-        "filename": image.filename
+    "message": "Image uploaded",
+    "filename": image.filename,
+    "score": score,
+    "classification": "clear_water"
     }
 
 if __name__ == "__main__":
