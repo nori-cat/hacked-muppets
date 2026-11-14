@@ -41,16 +41,38 @@ def upload():
     image.save(filepath)
     
     img = cv2.imread(filepath)
+    
+    height, width, channels = img.shape
+    
+    average_brightness = int(img.mean())
+    average_color = img.mean(axis=(0, 1))
+    
+    blue = int(average_color[0])
+    green = int(average_color[1])
+    red = int(average_color[2])
 
-    average_color = img.mean()
+    score = int(min(100, average_brightness / 255 * 100))
+    
+    if green > red + 15:
+        classification = "algae"
 
-    score = int(min(100, average_color / 255 * 100))
+    elif red > blue + 15:
+        classification = "sediment"
+
+    else:
+        classification = "clear_water"
 
     return {
     "message": "Image uploaded",
     "filename": image.filename,
+    "height": height,
+    "width": width,
+    "brightness": average_brightness,
+    "red": red,
+    "green": green,
+    "blue": blue,
     "score": score,
-    "classification": "clear_water"
+    "classification": classification
     }
 
 if __name__ == "__main__":
