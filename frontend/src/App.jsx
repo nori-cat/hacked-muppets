@@ -26,6 +26,8 @@ const fallback = (key) => ({
   tip: "No recommendation available.",
 });
 
+const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
+
 const scoreColor = (s) => (s >= 75 ? "#22c55e" : s >= 50 ? "#eab308" : "#ef4444");
 
 function Gauge({ score }) {
@@ -171,9 +173,12 @@ export default function App() {
           <details className="features">
             <summary>Computer vision features</summary>
             <div className="stat-grid">
+              <Stat label="Green coverage" value={pct(result.green_frac)} />
+              <Stat label="Blue coverage" value={pct(result.blue_frac)} />
+              <Stat label="Brown coverage" value={pct(result.brown_frac)} />
+              <Stat label="Color variety" value={result.hue_entropy} />
+              <Stat label="Debris specks" value={result.specks} />
               <Stat label="Brightness" value={result.brightness} />
-              <Stat label="Sharpness" value={result.cloudiness} />
-              <Stat label="Edge pixels" value={result.edge_count?.toLocaleString()} />
               <Stat label="Resolution" value={`${result.width}×${result.height}`} />
               <Stat label="Avg R" value={result.red} />
               <Stat label="Avg G" value={result.green} />

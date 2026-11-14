@@ -57,37 +57,21 @@ def upload():
         os.remove(filepath)
         return {"error": str(e)}, 400
 
-    brightness = results["brightness"]
-    red = results["red"]
-    green = results["green"]
-    blue = results["blue"]
+    classification, confidence = classify_water(results)
 
     score = calculate_score(
-        brightness,
-        results["cloudiness"],
-        results["edge_count"]
-    )
-
-    classification, confidence = classify_water(
-        red,
-        green,
-        blue
+        classification,
+        confidence,
+        results
     )
 
     return {
         "message": "Image uploaded",
         "filename": image.filename,
-        "height": results["height"],
-        "width": results["width"],
-        "brightness": brightness,
-        "cloudiness": results["cloudiness"],
-        "edge_count": results["edge_count"],
-        "red": red,
-        "green": green,
-        "blue": blue,
         "score": score,
         "classification": classification,
-        "confidence": confidence
+        "confidence": confidence,
+        **results
     }
 
 
