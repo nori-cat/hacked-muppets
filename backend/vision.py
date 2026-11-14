@@ -1,10 +1,26 @@
 import cv2
 import numpy as np
+from PIL import Image
+
+
+def load_image(filepath):
+    img = cv2.imread(filepath)
+
+    if img is None:
+        # OpenCV can't decode some formats (e.g. AVIF); try Pillow instead.
+        try:
+            with Image.open(filepath) as pil:
+                rgb = np.array(pil.convert("RGB"))
+            img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        except Exception:
+            raise ValueError("Could not read that image file")
+
+    return img
 
 
 def analyze_image(filepath):
 
-    img = cv2.imread(filepath)
+    img = load_image(filepath)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
