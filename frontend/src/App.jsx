@@ -30,6 +30,47 @@ const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
 
 const scoreColor = (s) => (s >= 75 ? "#22c55e" : s >= 50 ? "#eab308" : "#ef4444");
 
+const HISTORY_KEY = "aquavision-history";
+const MAX_HISTORY = 12;
+const BLANK = "data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=";
+
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY)) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(list) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+  } catch {
+    /* storage full or blocked: history just won't persist */
+  }
+}
+
+// Shrink the photo to a small square thumbnail so history stays tiny.
+function makeThumb(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const size = 96;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const k = Math.max(size / img.width, size / img.height);
+      const w = img.width * k, h = img.height * k;
+      canvas.getContext("2d").drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
 function Gauge({ score }) {
   const r = 70, c = 2 * Math.PI * r;
   const color = scoreColor(score);
@@ -69,6 +110,8 @@ export default function App() {
   const [error, setError] = useState(null);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef();
+  const [history, setHistory] = useState(loadHistory);
+  const [viewingSaved, setViewingSaved] = useState(false);
 
   const pick = (f) => {
     if (!f) return;
@@ -89,6 +132,17 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
       setResult(data);
+
+      const entry = {
+        id: Date.now(),
+        time: new Date().toISOString(),
+        name: file.name,
+        thumb: await makeThumb(file),
+        result: data,
+      };
+      const next = [entry, ...history].slice(0, MAX_HISTORY);
+      setHistory(next);
+      saveHistory(next);
     } catch (e) {
       setError(e.message === "Failed to fetch"
         ? "Can't reach the backend. Is Flask running on port 5000?"
@@ -100,6 +154,21 @@ export default function App() {
 
   const reset = () => {
     setFile(null); setPreview(null); setResult(null); setError(null);
+    setViewingSaved(false);
+  };
+
+  const openEntry = (entry) => {
+    setFile(null);
+    setError(null);
+    setResult(entry.result);
+    setPreview(entry.thumb || BLANK);
+    setViewingSaved(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    saveHistory([]);
   };
 
   const cls = result ? CLASSES[result.classification] ?? fallback(result.classification) : null;
@@ -132,7 +201,7 @@ export default function App() {
 
       {preview && (
         <section className="card">
-          <img src={preview} alt="Water sample" className="preview" />
+          <img src={preview} alt="Water sample" className={viewingSaved ? "preview saved" : "preview"} />
           {!result && (
             <div className="actions">
               <button className="primary" onClick={analyze} disabled={loading}>
@@ -187,6 +256,35 @@ export default function App() {
           </details>
 
           <button className="primary" onClick={reset}>Analyze another photo</button>
+        </section>
+      )}
+
+      {history.length > 0 && (
+        <section className="history">
+          <div className="history-head">
+            <h3>Recent scans</h3>
+            <button className="ghost small" onClick={clearHistory}>Clear</button>
+          </div>
+          {history.map((e) => {
+            const c = CLASSES[e.result.classification] ?? fallback(e.result.classification);
+            return (
+              <button className="hist-item" key={e.id} onClick={() => openEntry(e)}>
+                {e.thumb
+                  ? <img src={e.thumb} alt="" />
+                  : <span className="hist-ph">💧</span>}
+                <div className="hist-info">
+                  <strong style={{ color: c.color }}>{c.icon} {c.label}</strong>
+                  <span>
+                    {e.name} ·{" "}
+                    {new Date(e.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+                <span className="hist-score" style={{ color: scoreColor(e.result.score) }}>
+                  {e.result.score}
+                </span>
+              </button>
+            );
+          })}
         </section>
       )}
     </main>
