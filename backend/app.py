@@ -1,12 +1,12 @@
 from flask import Flask, request
+from vision import analyze_image
 import os
-import cv2
-import numpy as np
 
 app = Flask(__name__)
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 
 @app.route("/")
 def home():
@@ -19,6 +19,7 @@ def home():
     </form>
     """
 
+
 @app.route("/upload", methods=["POST"])
 def upload():
 
@@ -26,11 +27,12 @@ def upload():
         return {"error": "No image uploaded"}, 400
 
     image = request.files["image"]
+
     if not image.filename.lower().endswith(
-    (".png", ".jpg", ".jpeg", ".webp", ".avif")
+        (".png", ".jpg", ".jpeg", ".webp", ".avif")
     ):
         return {
-        "error": "Please upload an image file"
+            "error": "Please upload an image file"
         }, 400
 
     filepath = os.path.join(
@@ -38,23 +40,17 @@ def upload():
         image.filename
     )
 
-    image.save(filepath) 
-    img = cv2.imread(filepath)
-    
-    height, width, channels = img.shape
-    
-    average_brightness = int(img.mean())
-    average_color = img.mean(axis=(0, 1))
-    
-    blue = int(average_color[0])
-    green = int(average_color[1])
-    red = int(average_color[2])
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cloudiness = int(cv2.Laplacian(gray, cv2.CV_64F).var())
-    
+    image.save(filepath)
 
-    score = int(min(100, average_brightness / 255 * 100))
-    
+    results = analyze_image(filepath)
+
+    brightness = results["brightness"]
+    red = results["red"]
+    green = results["green"]
+    blue = results["blue"]
+
+    score = int(min(100, brightness / 255 * 100))
+
     if green > red + 15:
         classification = "algae"
 
@@ -65,18 +61,20 @@ def upload():
         classification = "clear_water"
 
     return {
-    "message": "Image uploaded",
-    "filename": image.filename,
-    "height": height,
-    "width": width,
-    "brightness": average_brightness,
-    "cloudiness": cloudiness,
-    "red": red,
-    "green": green,
-    "blue": blue,
-    "score": score,
-    "classification": classification
+        "message": "Image uploaded",
+        "filename": image.filename,
+        "height": results["height"],
+        "width": results["width"],
+        "brightness": brightness,
+        "cloudiness": results["cloudiness"],
+        "edge_count": results["edge_count"],
+        "red": red,
+        "green": green,
+        "blue": blue,
+        "score": score,
+        "classification": classification
     }
+
 
 if __name__ == "__main__":
     app.run(debug=True)
