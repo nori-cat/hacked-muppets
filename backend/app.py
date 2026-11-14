@@ -1,5 +1,8 @@
 from flask import Flask, request
 from vision import analyze_image
+from classifier import classify_water
+from scoring import calculate_score
+
 import os
 
 app = Flask(__name__)
@@ -49,16 +52,17 @@ def upload():
     green = results["green"]
     blue = results["blue"]
 
-    score = int(min(100, brightness / 255 * 100))
+    score = calculate_score(
+        brightness,
+        results["cloudiness"],
+        results["edge_count"]
+    )
 
-    if green > red + 15:
-        classification = "algae"
-
-    elif red > blue + 15:
-        classification = "sediment"
-
-    else:
-        classification = "clear_water"
+    classification, confidence = classify_water(
+        red,
+        green,
+        blue
+    )
 
     return {
         "message": "Image uploaded",
@@ -72,7 +76,8 @@ def upload():
         "green": green,
         "blue": blue,
         "score": score,
-        "classification": classification
+        "classification": classification,
+        "confidence": confidence
     }
 
 
