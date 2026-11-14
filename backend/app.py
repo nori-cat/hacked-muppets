@@ -38,8 +38,7 @@ def upload():
         image.filename
     )
 
-    image.save(filepath)
-    
+    image.save(filepath) 
     img = cv2.imread(filepath)
     
     height, width, channels = img.shape
@@ -50,6 +49,9 @@ def upload():
     blue = int(average_color[0])
     green = int(average_color[1])
     red = int(average_color[2])
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    cloudiness = int(cv2.Laplacian(gray, cv2.CV_64F).var())
+    
 
     score = int(min(100, average_brightness / 255 * 100))
     
@@ -68,6 +70,7 @@ def upload():
     "height": height,
     "width": width,
     "brightness": average_brightness,
+    "cloudiness": cloudiness,
     "red": red,
     "green": green,
     "blue": blue,
